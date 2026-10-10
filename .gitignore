@@ -1,0 +1,10 @@
+.venv/
+.vscode/
+docs/
+learning/
+converter_learning_modules.md
+CONTEXT.md
+__pycache__/
+*.py[cod]
+.DS_Store
+.env

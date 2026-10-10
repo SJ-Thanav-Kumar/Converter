@@ -1,0 +1,9 @@
+[project]
+name = "converter"
+version = "0.1.0"
+description = "Local image/video file converter (learning project -> desktop app)"
+requires-python = ">=3.9"
+dependencies = []   # Pillow arrives in Module 17, FFmpeg is an external tool (Module 18)
+
+[tool.setuptools.packages.find]
+include = ["core*"]
