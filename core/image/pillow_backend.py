@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Set, Tuple
+from typing import Any, Dict, Set, Tuple
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -49,6 +49,7 @@ class PillowBackend(ConversionBackend):
         target_format: str,
         progress: ProgressCallback,
         cancel: CancellationToken,
+        options: Dict[str, Any],
     ) -> None:
         try:
             with Image.open(source) as img:
@@ -57,13 +58,13 @@ class PillowBackend(ConversionBackend):
                 img = ImageOps.exif_transpose(img) #bake in cam rotation
                 img = _make_saveable(img)
 
-                options = {}
+                save_args = {}
                 if target_format == "jpeg":
                     img = _flatten_for_jpeg(img)
-                    options["quality"] = JPEG_QUALITY
+                    save_args["quality"] = options.get("quality", JPEG_QUALITY)
 
                 cancel.raise_if_cancelled()
-                img.save(destination, format=PILLOW_NAMES[target_format], **options)
+                img.save(destination, format=PILLOW_NAMES[target_format], **save_args)
                 
         except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
             raise ConversionFailedError(f"Could not convert {source.name}: {exc}") from exc

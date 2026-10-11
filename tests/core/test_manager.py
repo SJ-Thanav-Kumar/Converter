@@ -9,7 +9,6 @@ from core.conversion import (
     ConversionFailedError,
     ConversionManager,
     InvalidInputError,
-    OutputExistsError,
     Status,
     UnsupportedFormatError,
 )
@@ -30,8 +29,9 @@ class FakeBackend(ConversionBackend):
     def supported_conversions(self):
         return {("png", "jpeg"), ("png", "bmp")}
 
-    def convert(self, source, destination, source_format, target_format, progress, cancel):
+    def convert(self, source, destination, source_format, target_format, progress, cancel, options):
         self.calls.append((source, destination, source_format, target_format))
+        self.options = options
         progress(0.5, "halfway")
         if self.mode == "fail":
             destination.write_bytes(b"partial")
@@ -100,9 +100,13 @@ class ManagerTests(unittest.TestCase):
                 return {("png", "png")}
 
         m = ConversionManager([SameFormat()])
-        with self.assertRaises(OutputExistsError):
-            m.convert(self.src, "png", output_dir=self.dir, overwrite=True)
+        r = m.convert(self.src, "png", output_dir=self.dir, overwrite=True)
+        self.assertEqual(r.output_path, self.dir / "photo (1).png")
         self.assertEqual(self.src.read_bytes(), PNG)
+
+    def test_options_reach_the_backend(self):
+        self.manager.convert(self.src, "jpeg", output_dir=self.dir, options={"quality": 50})
+        self.assertEqual(self.backend.options, {"quality": 50})
 
     def test_invalid_inputs(self):
         with self.assertRaises(InvalidInputError):
