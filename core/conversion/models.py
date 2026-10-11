@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 from .errors import ConversionCancelledError
 
@@ -77,5 +77,10 @@ class ConversionBackend(ABC):
         target_format: str,
         progress: ProgressCallback,
         cancel: CancellationToken,
+        options: Dict[str, Any],
     ) -> None:
-        """Read `source`, write the converted file to `destination`."""
+        """Read `source`, write the converted file to `destination`.
+
+        `options` is a free-form dict from the caller (e.g. {"quality": 80} or
+        {"video_codec": "h265"}). Backends read the keys they know and ignore the rest.
+        """
