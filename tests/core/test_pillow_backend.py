@@ -56,6 +56,28 @@ class PillowBackendTests(unittest.TestCase):
         with Image.open(self.convert(src, "jpeg").output_path) as img:
             self.assertEqual(img.size, (6, 6))
 
+    def test_uncommon_modes_convert(self):
+        # (mode, fill, source ext, targets that previously failed or are most likely)
+        cases = [
+            ("CMYK", (0, 100, 100, 0), "jpg", ["png", "bmp"]),  # print-style JPEGs
+            ("LA", (100, 255), "png", ["bmp", "jpeg"]),
+            ("I;16", 3000, "png", ["bmp", "jpeg"]),
+        ]
+        for mode, fill, ext, targets in cases:
+            src = self.dir / f"{mode.replace(';', '_')}.{ext}"
+            Image.new(mode, (8, 6), fill).save(src)
+            for target in targets:
+                with self.subTest(mode=mode, target=target):
+                    out = self.manager.convert(src, target, output_dir=self.out, overwrite=True)
+                    with Image.open(out.output_path) as img:
+                        self.assertEqual(img.size, (8, 6))
+
+    def test_16bit_grayscale_is_scaled_not_clipped(self):
+        src = self.dir / "deep.png"
+        Image.new("I;16", (4, 4), 3000).save(src)
+        with Image.open(self.convert(src, "bmp").output_path) as img:
+            self.assertEqual(img.convert("L").getpixel((0, 0)), 11)  # 3000 / 256, not 255
+
     def test_exif_rotation_applied(self):
         src = self.dir / "rot.jpg"
         exif = Image.Exif()
