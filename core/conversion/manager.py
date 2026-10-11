@@ -7,11 +7,9 @@ The manager owns everything that is *not* codec work: input validation, format
 detection, backend lookup, output naming, overwrite protection, temp-file-then-rename,
 progress, cancellation and logging. Backends only convert bytes.
 """
-
 from __future__ import annotations
 
-import logging
-import os
+import logging, os
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
@@ -25,6 +23,7 @@ from .errors import (
     OutputExistsError,
     UnsupportedFormatError,
 )
+
 from .models import (
     CancellationToken,
     ConversionBackend,
@@ -36,11 +35,12 @@ from .models import (
 log = logging.getLogger("converter")
 
 PathLike = Union[str, Path]
+# Where results go when the caller gives no output_dir. The input is never the target.
+DEFAULT_OUTPUT_DIR = Path.home() / "Downloads"
 
 
 def _ignore_progress(fraction: Optional[float], message: str) -> None:
     pass
-
 
 class ConversionManager:
     def __init__(self, backends: Iterable[ConversionBackend] = ()) -> None:
@@ -48,8 +48,7 @@ class ConversionManager:
         for backend in backends:
             self.register(backend)
 
-    # ---- backend registry -------------------------------------------------
-
+    # backend registry
     def register(self, backend: ConversionBackend) -> None:
         """Add a backend. If two backends claim the same pair, the later one wins."""
         for source, target in backend.supported_conversions():
@@ -60,8 +59,7 @@ class ConversionManager:
         source = normalize_format(source_format)
         return sorted(t for (s, t) in self._routes if s == source)
 
-    # ---- conversion -------------------------------------------------------
-
+    #conversion
     def convert(
         self,
         input_path: PathLike,
@@ -96,7 +94,7 @@ class ConversionManager:
         if destination.resolve() == source.resolve():
             raise OutputExistsError(f"Output would overwrite the input file: {destination}")
         if destination.exists() and not overwrite:
-            raise OutputExistsError(f"Output already exists: {destination}")
+            destination = self.unique_path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         # The backend writes to a temp file next to the destination (same extension,
@@ -161,19 +159,18 @@ class ConversionManager:
 
     @staticmethod
     def plan_output_path(source: Path, target_format: str, output_dir: Optional[PathLike]) -> Path:
-        """Predictable naming: <output_dir or source dir>/<source stem><canonical ext>."""
+        """Predictable naming: <output_dir or Downloads>/<source stem><canonical ext>."""
         info = get_format(target_format)
         extension = info.extension if info else "." + normalize_format(target_format)
-        directory = Path(output_dir) if output_dir is not None else source.parent
+        directory = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
         return directory / (source.stem + extension)
 
     @staticmethod
-    def _validate_input(source: Path) -> None:
-        if not source.exists():
-            raise InvalidInputError(f"File not found: {source}")
-        if not source.is_file():
-            raise InvalidInputError(f"Not a file: {source}")
-        if source.stat().st_size == 0:
-            raise InvalidInputError(f"File is empty: {source}")
-        if not os.access(source, os.R_OK):
-            raise InvalidInputError(f"File is not readable: {source}")
+    def unique_path(path: Path) -> Path:
+        """photo.jpg -> photo (1).jpg -> photo (2).jpg ... first name that is free."""
+        n = 1
+        candidate = path
+        while candidate.exists():
+            candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
+            n += 1
+        return candidate
