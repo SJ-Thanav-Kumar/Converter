@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging, os
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from core.detection import detect_file, get_format, normalize_format
 
@@ -20,7 +20,6 @@ from .errors import (
     ConversionFailedError,
     ConverterError,
     InvalidInputError,
-    OutputExistsError,
     UnsupportedFormatError,
 )
 
@@ -67,6 +66,7 @@ class ConversionManager:
         *,
         output_dir: Optional[PathLike] = None,
         overwrite: bool = False,
+        options: Optional[Dict[str, Any]] = None,
         progress: Optional[ProgressCallback] = None,
         cancel: Optional[CancellationToken] = None,
     ) -> ConversionResult:
@@ -91,9 +91,9 @@ class ConversionManager:
             )
 
         destination = self.plan_output_path(source, target.id, output_dir)
-        if destination.resolve() == source.resolve():
-            raise OutputExistsError(f"Output would overwrite the input file: {destination}")
-        if destination.exists() and not overwrite:
+        # Never write over the input (e.g. H.264 mp4 -> H.265 mp4 in the same folder),
+        # and don't replace an existing output unless asked to.
+        if destination.exists() and (not overwrite or destination.resolve() == source.resolve()):
             destination = self.unique_path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -106,7 +106,7 @@ class ConversionManager:
         progress(0.0, f"Converting {source.name}")
         try:
             cancel.raise_if_cancelled()
-            backend.convert(source, temp, detected.id, target.id, progress, cancel)
+            backend.convert(source, temp, detected.id, target.id, progress, cancel, options or {})
             cancel.raise_if_cancelled()
             if not temp.exists() or temp.stat().st_size == 0:
                 raise ConversionFailedError(f"{backend.name} produced no output")
@@ -132,6 +132,7 @@ class ConversionManager:
         *,
         output_dir: Optional[PathLike] = None,
         overwrite: bool = False,
+        options: Optional[Dict[str, Any]] = None,
         progress: Optional[ProgressCallback] = None,
         cancel: Optional[CancellationToken] = None,
     ) -> List[ConversionResult]:
@@ -144,7 +145,7 @@ class ConversionManager:
                 results.append(
                     self.convert(
                         path, output_format,
-                        output_dir=output_dir, overwrite=overwrite,
+                        output_dir=output_dir, overwrite=overwrite, options=options,
                         progress=progress, cancel=cancel,
                     )
                 )
