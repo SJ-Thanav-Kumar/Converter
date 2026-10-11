@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-
+from core.conversion.manager import DEFAULT_OUTPUT_DIR
 from core.conversion import (
     CancellationToken,
     ConversionBackend,
@@ -58,7 +58,7 @@ class ManagerTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_convert_ok(self):
-        r = self.manager.convert(self.src, "jpg")  # alias accepted
+        r = self.manager.convert(self.src, "jpg", output_dir=self.dir)  # alias accepted
         self.assertTrue(r.ok)
         self.assertEqual(r.output_path, self.dir / "photo.jpg")
         self.assertEqual(r.input_format, "png")
@@ -73,22 +73,25 @@ class ManagerTests(unittest.TestCase):
 
     def test_progress_reported(self):
         events = []
-        self.manager.convert(self.src, "bmp", progress=lambda f, m: events.append(f))
+        self.manager.convert(self.src, "bmp", output_dir=self.dir, progress=lambda f, m: events.append(f))
         self.assertEqual(events[0], 0.0)
         self.assertEqual(events[-1], 1.0)
         self.assertIn(0.5, events)
 
-    def test_refuses_overwrite_by_default(self):
+    def test_collision_gets_new_name(self):
         existing = self.dir / "photo.jpg"
         existing.write_bytes(b"keep me")
-        with self.assertRaises(OutputExistsError):
-            self.manager.convert(self.src, "jpeg")
+        r = self.manager.convert(self.src, "jpeg", output_dir=self.dir)
+        self.assertEqual(r.output_path, self.dir / "photo (1).jpg")
         self.assertEqual(existing.read_bytes(), b"keep me")
-        self.assertEqual(self.backend.calls, [])
+
+    def test_default_output_dir_is_downloads(self):
+        planned = ConversionManager.plan_output_path(self.src, "jpeg", None)
+        self.assertEqual(planned.parent, DEFAULT_OUTPUT_DIR)
 
     def test_overwrite_allowed_on_request(self):
         (self.dir / "photo.jpg").write_bytes(b"old")
-        r = self.manager.convert(self.src, "jpeg", overwrite=True)
+        r = self.manager.convert(self.src, "jpeg", output_dir=self.dir, overwrite=True)
         self.assertEqual(r.output_path.read_bytes(), b"converted:jpeg")
 
     def test_never_overwrites_input(self):
@@ -98,51 +101,51 @@ class ManagerTests(unittest.TestCase):
 
         m = ConversionManager([SameFormat()])
         with self.assertRaises(OutputExistsError):
-            m.convert(self.src, "png", overwrite=True)
+            m.convert(self.src, "png", output_dir=self.dir, overwrite=True)
         self.assertEqual(self.src.read_bytes(), PNG)
 
     def test_invalid_inputs(self):
         with self.assertRaises(InvalidInputError):
-            self.manager.convert(self.dir / "missing.png", "jpeg")
+            self.manager.convert(self.dir / "missing.png", "jpeg", output_dir=self.dir)
         with self.assertRaises(InvalidInputError):
-            self.manager.convert(self.dir, "jpeg")
+            self.manager.convert(self.dir, "jpeg", output_dir=self.dir)
         empty = self.dir / "empty.png"
         empty.write_bytes(b"")
         with self.assertRaises(InvalidInputError):
-            self.manager.convert(empty, "jpeg")
+            self.manager.convert(empty, "jpeg", output_dir=self.dir)
 
     def test_unsupported(self):
         text = self.dir / "notes.png"
         text.write_bytes(b"just text pretending to be a png")
         with self.assertRaises(UnsupportedFormatError):
-            self.manager.convert(text, "jpeg")  # content, not extension, decides
+            self.manager.convert(text, "jpeg", output_dir=self.dir)  # content, not extension, decides
         with self.assertRaises(UnsupportedFormatError):
-            self.manager.convert(self.src, "mp4")  # no route
+            self.manager.convert(self.src, "mp4", output_dir=self.dir)  # no route
         with self.assertRaises(UnsupportedFormatError):
-            self.manager.convert(self.src, "nonsense")
+            self.manager.convert(self.src, "nonsense", output_dir=self.dir)
 
     def test_backend_failure_leaves_no_partial_file(self):
         m = ConversionManager([FakeBackend("fail")])
         with self.assertRaises(ConversionFailedError):
-            m.convert(self.src, "jpeg")
+            m.convert(self.src, "jpeg", output_dir=self.dir)
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["photo.png"])
 
     def test_empty_backend_output_is_a_failure(self):
         m = ConversionManager([FakeBackend("empty")])
         with self.assertRaises(ConversionFailedError):
-            m.convert(self.src, "jpeg")
+            m.convert(self.src, "jpeg", output_dir=self.dir)
 
     def test_cancel_before_start(self):
         token = CancellationToken()
         token.cancel()
         with self.assertRaises(ConversionCancelledError):
-            self.manager.convert(self.src, "jpeg", cancel=token)
+            self.manager.convert(self.src, "jpeg", output_dir=self.dir, cancel=token)
         self.assertEqual(self.backend.calls, [])
 
     def test_cancel_during_conversion(self):
         m = ConversionManager([FakeBackend("cancel")])
         with self.assertRaises(ConversionCancelledError):
-            m.convert(self.src, "jpeg")
+            m.convert(self.src, "jpeg", output_dir=self.dir)
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["photo.png"])
 
     def test_batch_continues_after_failure(self):
@@ -150,7 +153,7 @@ class ManagerTests(unittest.TestCase):
         bad.write_bytes(b"nope")
         good2 = self.dir / "other.png"
         good2.write_bytes(PNG)
-        results = self.manager.convert_batch([self.src, bad, good2], "jpeg")
+        results = self.manager.convert_batch([self.src, bad, good2], "jpeg", output_dir=self.dir)
         self.assertEqual([r.status for r in results], [Status.OK, Status.FAILED, Status.OK])
         self.assertIn("Unrecognised", results[1].error)
 

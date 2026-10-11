@@ -174,3 +174,14 @@ class ConversionManager:
             candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
             n += 1
         return candidate
+
+    @staticmethod
+    def _validate_input(source: Path) -> None:
+        if not source.exists():
+            raise InvalidInputError(f"File not found: {source}")
+        if not source.is_file():
+            raise InvalidInputError(f"Not a file: {source}")
+        if source.stat().st_size == 0:
+            raise InvalidInputError(f"File is empty: {source}")
+        if not os.access(source, os.R_OK):
+            raise InvalidInputError(f"File is not readable: {source}")
