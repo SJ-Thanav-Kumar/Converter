@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from core.conversion.errors import ConversionCancelledError, ConversionFailedError
 from core.conversion.models import CancellationToken, ConversionBackend, ProgressCallback
 
+#container ids this backend handles
 VIDEO_FORMATS = {"mp4", "mov", "mkv"}
 
 #codecs that each container can hold, so no need to reenocode
@@ -20,23 +21,32 @@ COPYABLE = {
     "mkv": {"video": None, "audio": None},
 }
 
+#mapping option names to ffmpegs encoder name and a default crf(const rate factor)
 VIDEO_ENCODERS = {"h264": ("libx264", 23), "h265": ("libx265", 28)}
 
+
+#asks ffprobe about the file given
 def probe_media(path: Path) -> Dict[str, Any]:
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
         raise ConversionFailedError("ffprobe was not found. Install FFmpeg and make sure it is on PATH.")
 
+    #subprocess collects its output as text, gives up after given timeout
     try:
         done = subprocess.run([ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)], 
                               capture_output= True, text = True, timeout= 30,)
     except subprocess.TimeoutExpired as exc:
         raise ConversionFailedError(f"ffprobe timed out reading {path.name}") from exc
+
+    #checks if the media file is readable
     if done.returncode != 0:
         raise ConversionFailedError(f"Not a readable media file: {path.name}")
-    
+
     return json.loads(done.stdout)
 
+
+'''a list comprehension: loop over every stream, keep whose codec_type
+matches kind, collect their codec_name'''
 def _codecs(info: Dict[str, Any], kind: str) -> List[str]:
     #codec names of all streams of one kind ("video" or "audio")
     arr = []
@@ -46,17 +56,22 @@ def _codecs(info: Dict[str, Any], kind: str) -> List[str]:
 
     return arr
 
+
+#either anything is allowed, or every codec in the list must be in the set
+#a video with audio is fine
 def _can_copy(container: str, kind: str, codecs: List[str]) -> bool:
     allowed = COPYABLE[container][kind]
     return allowed is None or all(codec in allowed for codec in codecs)
 
+
+#says if its remux or transcode, return argv_list, "remux" or "transcode"
+#each stream copied when it can be
 def build_command(
         ffmpeg: str, source: Path, destination: Path, target_format: str,
         info: Dict[str, Any], options: Dict[str, Any]
 ) -> Tuple[List[str], str]:
-    #return argv_list, "remux" or "transcode"
-    #each stream copied when it can be
-    wanted = options.get("video_codec")     #None, h264, or h265
+
+    wanted = options.get("video_codec")     #users option: None, h264, or h265
 
     if wanted is not None and wanted not in VIDEO_ENCODERS:
         raise ConversionFailedError(f"Unsupported video codec option: {wanted!r}")
@@ -71,32 +86,37 @@ def build_command(
     ]
 
     if copy_video:
-        command += ["-c:v", "copy"]
+        command += ["-c:v", "copy"] #copy video
     else:
         encoder, default_crf = VIDEO_ENCODERS[wanted or "h264"]
         command += ["-c:v", encoder, "-crf", str(options.get("crf", default_crf)),
-                    "-preset", "medium", "-pix_fmt", "yuv420p"]
+                    "-preset", "medium", "-pix_fmt", "yuv420p"]                         #if not just copy, then we get the crf to to override the quality
         
         if encoder == "libx265" and target_format in ("mp4", "mov"):
             command += ["-tag:v", "hvc1"]            #lets apple players open HEVC
 
-    command += ["-c:a", "copy"] if copy_audio else ["-c:a", "aac", "-b:a", "160k"]
+    command += ["-c:a", "copy"] if copy_audio else ["-c:a", "aac", "-b:a", "160k"]      #self explanatory
 
-    if target_format in ("mp4", "mov"):
+    if target_format in ("mp4", "mov"):                 #only these containers have faststart
         command += ["-movflags", "+faststart"] #put index(moov) in front
 
     command += ["-progress", "pipe:1", "-nostats", str(destination)]
     mode = "remux" if (copy_video and copy_audio) else "transcode"
+
     return command, mode
+
+
 
 class FFmpegBackend(ConversionBackend):
     name = "FFmpeg"
 
+    #if either tool is missing, return an empty set so managers target is empty
     def supported_conversions(self) -> Set[Tuple[str, str]]:
         if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
-            return set()                             #no FFmpeg: no video options
+            return set()                             #no FFmpeg: so no video options in ui
         return {(a, b) for a in VIDEO_FORMATS for b in VIDEO_FORMATS}
 
+    #orchestration
     def convert(
         self,
         source: Path,
@@ -107,6 +127,7 @@ class FFmpegBackend(ConversionBackend):
         cancel: CancellationToken,
         options: Dict[str, Any],
     ) -> None:
+        #check if ffmpeg exists
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg is None:
             raise ConversionFailedError("FFmpeg was not found. Install it and make sure it is on PATH.")
@@ -115,16 +136,19 @@ class FFmpegBackend(ConversionBackend):
         if not _codecs(info, "video"):
             raise ConversionFailedError(f"{source.name} has no video stream")
 
+        #handles missing keys and None. Needed to turn seconds encoded to %
         duration = float(info.get("format", {}).get("duration") or 0)
 
         command, mode = build_command(ffmpeg, source.resolve(),
                                       destination.resolve(), target_format, info, options)
         verb = "Remuxing" if mode == "remux" else "Transcoding"
         progress(0.0, f"{verb} {source.name}")
+
         self._run(command, duration, progress, cancel)
 
 
     @staticmethod
+    #runs ffmpeg and monitor
     def _run(command: List[str], duration: float,
                 progress: ProgressCallback, cancel: CancellationToken) ->None:
         with tempfile.TemporaryFile() as error_log:
@@ -135,6 +159,8 @@ class FFmpegBackend(ConversionBackend):
                         if cancel.cancelled:
                             process.terminate()
                             raise ConversionCancelledError("Conversion cancelled")
+
+                        #splits into key:value
                         key, _, value = line.strip().partition("=")
 
                         if key == "out_time_us" and value.isdigit() and duration > 0:
