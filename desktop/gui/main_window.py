@@ -21,7 +21,7 @@ from desktop.workers.conversion_worker import ConversionWorker
 APP_NAME = "QUARRY"
 FOOTER_NAME = "SJ THANAV KUMAR"      # centre of the footer
 GITHUB_URL = "https://github.com/SJ-Thanav-Kumar"
-LINKEDIN_URL = "www.linkedin.com/in/thanav-kumar-s-j-6025692b5"
+LINKEDIN_URL = "https://www.linkedin.com/in/thanav-kumar-s-j-6025692b5"
 ARROW_TEXT = "→"
 DROP_TITLE = "DRAG & DROP YOUR FILE"
 DROP_SUBTITLE = "OR CLICK TO CHOOSE"

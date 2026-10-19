@@ -316,7 +316,7 @@ class LogoButton(QPushButton):
         renderer.render(painter)
         painter.end()
         self.setIcon(QIcon(pixmap))
-        self.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        self.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromUserInput(url)))
 
 
 class BelowComboBox(QComboBox):
