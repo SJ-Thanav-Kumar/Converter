@@ -1,0 +1,31 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[desktop]" pyinstaller
+      - run: pyinstaller --noconfirm --windowed --name Quarry --paths . --collect-all pillow_heif desktop/main.py
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir dmgroot && cp -R dist/Quarry.app dmgroot/ && ln -s /Applications dmgroot/Applications
+          hdiutil create -volname Quarry -srcfolder dmgroot -ov -format UDZO Quarry-macOS.dmg
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist\Quarry -DestinationPath Quarry-Windows.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Quarry-macOS.dmg
+            Quarry-Windows.zip
