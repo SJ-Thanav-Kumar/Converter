@@ -79,6 +79,43 @@ class FFmpegBackendTests(unittest.TestCase):
         self.assertEqual(events[0], 0.0)
         self.assertEqual(events[-1], 1.0)
 
+    def test_video_to_gif(self):
+        result = self.convert(self.mp4, "gif")
+        self.assertEqual(detect_file(result.output_path).id, "gif")
+        stream = probe_media(result.output_path)["streams"][0]
+        self.assertEqual(stream["codec_name"], "gif")
+        self.assertEqual(stream["width"], 160)            # smaller than the 480 cap, so not stretched
+
+    def test_gif_options_change_size_and_rate(self):
+        result = self.convert(self.mp4, "gif", options={"gif_width": 80, "gif_fps": 5})
+        stream = probe_media(result.output_path)["streams"][0]
+        self.assertEqual(stream["width"], 80)
+        self.assertEqual(stream["r_frame_rate"], "5/1")
+
+    def test_gif_to_video_handles_odd_sizes(self):
+        gif = self.dir / "odd.gif"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                        "testsrc=duration=1:size=101x75:rate=10", str(gif)], check=True)
+        for target in ("mp4", "mov"):
+            with self.subTest(target=target):
+                result = self.convert(gif, target, overwrite=True)
+                self.assertEqual(detect_file(result.output_path).id, target)
+                stream = probe_media(result.output_path)["streams"][0]
+                self.assertEqual((stream["codec_name"], stream["width"], stream["height"]), ("h264", 100, 74))
+
+    def test_gif_to_h265(self):
+        gif = self.convert(self.mp4, "gif").output_path
+        result = self.manager.convert(gif, "mp4", output_dir=self.dir / "h265", options={"video_codec": "h265"})
+        self.assertEqual(codecs(result.output_path)["video"], "hevc")
+
+    def test_gif_seconds_caps_the_length(self):
+        result = self.convert(self.mp4, "gif", options={"gif_seconds": 0.5})
+        self.assertLess(float(probe_media(result.output_path)["format"]["duration"]), 0.8)
+
+    def test_bad_gif_options(self):
+        with self.assertRaises(ConversionFailedError):
+            self.convert(self.mp4, "gif", options={"gif_fps": 0})
+
     def test_corrupt_video_fails_cleanly(self):
         bad = self.dir / "bad.mp4"
         bad.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"garbage" * 50)

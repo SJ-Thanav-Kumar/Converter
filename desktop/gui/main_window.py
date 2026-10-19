@@ -5,10 +5,10 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QImageReader
+from PIL import Image
 from PySide6.QtWidgets import (
     QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QSlider, QStackedWidget, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 from core.conversion import CancellationToken, ConversionManager, ConversionResult, Status
 from core.detection import detect_file, get_format
@@ -26,26 +26,26 @@ ARROW_TEXT = "→"
 DROP_TITLE = "DRAG & DROP YOUR FILE"
 DROP_SUBTITLE = "OR CLICK TO CHOOSE"
 PREVIEW_PLACEHOLDER = "NO OUTPUT YET"
-VIDEO_PREVIEW_TEXT = "VIDEO OUTPUT\nNO FRAME PREVIEW"
-BUTTON_TEXT = {"cancel": "CANCEL", "save": "SAVE OUTPUT", "discard": "DISCARD", "remove": "×"}
-RESTORE_TEXT = (
-    "RESTORE IS NOT AVAILABLE YET",
-    "THE CONVERTER HAS NO DECOMPRESSION OR RESTORATION FEATURE TO CONNECT TO.",
-)
+BUTTON_TEXT = {"cancel": "CANCEL", "save": "SAVE OUTPUT", "discard": "DISCARD", "remove": "×", "default": "DEFAULT"}
 
 # >>> ELEMENT: the main tabs: (mode id, label, text of the run button, hint under ADDITIONAL OPTIONS)
 MODES = [
     ("convert", "CONVERT", "CONVERT FILE", "Keep default settings for best quality."),
-    ("compress", "COMPRESS", "COMPRESS FILE", "Smaller file, lower quality. Image: JPEG. Video: re-encoded."),
-    ("restore", "RESTORE", "", ""),
+    ("compress", "COMPRESS", "COMPRESS FILE", "Smaller file, lower quality. Image: JPEG, WebP, AVIF or HEIC. Video: re-encoded."),
 ]
 # >>> ELEMENT: the secondary tabs: (kind id, label)
 KINDS = [("image", "IMAGE"), ("video", "VIDEO")]
 
+LOSSY_TARGETS = {"jpeg", "webp", "avif", "heic"}     # formats with a quality slider (same list as core.image.pillow_backend.LOSSY)
 CODEC_CONVERT = [("KEEP", "keep"), ("H.264", "h264"), ("H.265", "h265")]
 CODEC_COMPRESS = [("H.264", "h264"), ("H.265", "h265")]   # compressing always re-encodes
 CRF_RANGE = (18, 40)       #FFmpeg CRF: lower = better quality and a bigger file
 CRF_DEFAULT = 28
+QUALITY_DEFAULT = 90       # JPEG / WebP / AVIF / HEIC quality slider (same as core.image.pillow_backend.JPEG_QUALITY)
+# >>> ELEMENT: the video -> GIF sliders (min, max) and their starting values
+GIF_FPS_RANGE, GIF_FPS_DEFAULT = (1, 30), 12
+GIF_WIDTH_RANGE, GIF_WIDTH_DEFAULT = (80, 1080), 480
+GIF_SECONDS_RANGE, GIF_SECONDS_DEFAULT = (0, 60), 10     # 0 = the whole video
 
 
 def human_size(num_bytes: int) -> str:
@@ -62,9 +62,11 @@ def describe(path: Path, format_id: str) -> str:
     parts = [format_id.upper(), human_size(path.stat().st_size)]
     info = get_format(format_id)
     if info is not None and info.kind == "image":
-        size = QImageReader(str(path)).size()
-        if size.isValid():
-            parts.append(f"{size.width()} × {size.height()}")
+        try:
+            with Image.open(path) as img:        #Pillow reads only the header here, and knows every format we convert
+                parts.append(f"{img.width} × {img.height}")
+        except (OSError, ValueError):
+            pass
     return "  •  ".join(parts)
 
 
@@ -85,7 +87,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(APP_NAME.title())
         self.resize(*theme.WINDOW_SIZE)
-        self.setMinimumSize(980, 760)
+        self.setMinimumWidth(980)       # no fixed minimum height: the layout decides, so the extra GIF rows never get squeezed
         self._build_ui()
         self._set_mode("convert")
 
@@ -101,10 +103,7 @@ class MainWindow(QMainWindow):
         body = QHBoxLayout()
         body.setSpacing(0)
         body.addWidget(self._build_sidebar())
-        self._stack = QStackedWidget()
-        self._stack.addWidget(self._build_workspace())   # page 0: input -> arrow -> output
-        self._stack.addWidget(self._build_restore_page())  # page 1: RESTORE
-        body.addWidget(self._stack, stretch=1)
+        body.addWidget(self._build_workspace(), stretch=1)   # input -> arrow -> output
         column.addLayout(body, stretch=1)
 
         column.addWidget(self._build_footer())
@@ -145,7 +144,7 @@ class MainWindow(QMainWindow):
         side.setObjectName("Sidebar")
         side.setFixedWidth(theme.SIDEBAR_WIDTH_PX)
         col = QVBoxLayout(side)
-        col.setContentsMargins(0, 24, 1, 0)   # 1px right margin keeps the sidebar's border line visible
+        col.setContentsMargins(0, 0, 1, 0)   # 1px right margin keeps the sidebar's border line visible
         col.setSpacing(0)
         self._kind_group = QButtonGroup(self)
         self._kind_buttons: Dict[str, QPushButton] = {}
@@ -223,13 +222,21 @@ class MainWindow(QMainWindow):
         col.addWidget(self._rule())
 
         # operation settingseach row is shown or hidden by _on_target_changed
-        col.addWidget(self._caption("ADDITIONAL OPTIONS"))
+        options_head = QHBoxLayout()           # caption on the left, DEFAULT button on the right
+        options_head.addWidget(self._caption("ADDITIONAL OPTIONS"))
+        options_head.addStretch()
+        self._default_button = QPushButton(BUTTON_TEXT["default"])
+        self._default_button.setObjectName("Flat")
+        self._default_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._default_button.clicked.connect(self._reset_options)
+        options_head.addWidget(self._default_button)
+        col.addLayout(options_head)
         self._quality_slider = QSlider(Qt.Orientation.Horizontal)
         self._quality_slider.setRange(1, 100)
         self._quality_slider.setValue(self._settings.jpeg_quality)
         self._quality_value = QLabel(str(self._settings.jpeg_quality))
         self._quality_slider.valueChanged.connect(self._on_quality_changed)
-        self._quality_row = self._option_row("JPEG QUALITY", self._quality_slider, self._quality_value)
+        self._quality_row = self._option_row("QUALITY", self._quality_slider, self._quality_value)
 
         self._codec_combo = BelowComboBox()
         self._codec_combo.currentIndexChanged.connect(self._on_codec_changed)
@@ -242,7 +249,31 @@ class MainWindow(QMainWindow):
         self._crf_slider.valueChanged.connect(lambda v: self._crf_value.setText(str(v)))
         self._crf_row = self._option_row("CRF (HIGHER = SMALLER)", self._crf_slider, self._crf_value)
 
-        for options_row in (self._quality_row, self._codec_row, self._crf_row):
+        # video -> GIF only: frame rate, width and a length cap (a long video makes an enormous GIF)
+        self._gif_fps_slider = QSlider(Qt.Orientation.Horizontal)
+        self._gif_fps_slider.setRange(*GIF_FPS_RANGE)
+        self._gif_fps_slider.setValue(GIF_FPS_DEFAULT)
+        self._gif_fps_value = QLabel(str(GIF_FPS_DEFAULT))
+        self._gif_fps_slider.valueChanged.connect(lambda v: self._gif_fps_value.setText(str(v)))
+        self._gif_fps_row = self._option_row("GIF FRAMES PER SECOND", self._gif_fps_slider, self._gif_fps_value)
+
+        self._gif_width_slider = QSlider(Qt.Orientation.Horizontal)
+        self._gif_width_slider.setRange(*GIF_WIDTH_RANGE)
+        self._gif_width_slider.setValue(GIF_WIDTH_DEFAULT)
+        self._gif_width_value = QLabel(f"{GIF_WIDTH_DEFAULT} PX")
+        self._gif_width_slider.valueChanged.connect(lambda v: self._gif_width_value.setText(f"{v} PX"))
+        self._gif_width_row = self._option_row("GIF WIDTH", self._gif_width_slider, self._gif_width_value)
+
+        self._gif_seconds_slider = QSlider(Qt.Orientation.Horizontal)
+        self._gif_seconds_slider.setRange(*GIF_SECONDS_RANGE)
+        self._gif_seconds_slider.setValue(GIF_SECONDS_DEFAULT)
+        self._gif_seconds_value = QLabel(f"{GIF_SECONDS_DEFAULT} S")
+        self._gif_seconds_slider.valueChanged.connect(
+            lambda v: self._gif_seconds_value.setText(f"{v} S" if v else "ALL"))
+        self._gif_seconds_row = self._option_row("GIF MAX LENGTH", self._gif_seconds_slider, self._gif_seconds_value)
+
+        self._gif_rows = (self._gif_fps_row, self._gif_width_row, self._gif_seconds_row)
+        for options_row in (self._quality_row, self._codec_row, self._crf_row, *self._gif_rows):
             col.addWidget(options_row)
         self._hint = QLabel("")
         self._hint.setProperty("role", "muted")
@@ -274,6 +305,9 @@ class MainWindow(QMainWindow):
         label.setMinimumWidth(170)
         row.addWidget(label)
         for widget in widgets:
+            if isinstance(widget, QLabel):               # the number next to a slider: fixed room so it is never cut off
+                widget.setMinimumWidth(64)
+                widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row.addWidget(widget, stretch=1 if isinstance(widget, (QSlider, BelowComboBox)) else 0)
         return box
 
@@ -304,21 +338,6 @@ class MainWindow(QMainWindow):
         col.addLayout(buttons)
         return col
 
-    def _build_restore_page(self) -> QWidget:
-        page = QWidget()
-        col = QVBoxLayout(page)
-        col.addStretch()
-        heading = QLabel(RESTORE_TEXT[0])
-        theme.style_title(heading, "Heading")
-        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        note = QLabel(RESTORE_TEXT[1])
-        note.setProperty("role", "muted")
-        note.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        col.addWidget(heading)
-        col.addWidget(note)
-        col.addStretch()
-        return page
-
     def _build_footer(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("Footer")
@@ -347,13 +366,11 @@ class MainWindow(QMainWindow):
     def _set_mode(self, mode: str) -> None:
         self._mode = mode
         self._mode_buttons[mode].setChecked(True)
-        self._stack.setCurrentIndex(1 if mode == "restore" else 0)
-        if mode != "restore":
-            entry = next(m for m in MODES if m[0] == mode)
-            self._run_button.setText(entry[2])
-            self._hint.setText(entry[3])
-            self._fill_codecs()
-            self._refresh_targets()
+        entry = next(m for m in MODES if m[0] == mode)
+        self._run_button.setText(entry[2])
+        self._hint.setText(entry[3])
+        self._fill_codecs()
+        self._refresh_targets()
 
     def _select_kind(self, kind: str) -> None:
         #IMAGE/VIDEO clicked.loaded file of the other kind has to go (after asking)
@@ -408,6 +425,7 @@ class MainWindow(QMainWindow):
         self._file_meta.setText(describe(path, info.id))
         self._drop.set_loaded(True)
         self._drop.set_texts(path.name, "CLICK TO CHOOSE ANOTHER")
+        self._drop.show_preview(path, kind == "video")      # the file itself replaces the texts; if it cannot be drawn they stay
         self._reset_output()
         self._progress.setValue(0)
         self._say("")
@@ -427,6 +445,7 @@ class MainWindow(QMainWindow):
         self._file_name.setText("NO FILE SELECTED")
         self._file_meta.setText("")
         self._drop.set_loaded(False)
+        self._drop.clear_preview()
         self._drop.set_texts(DROP_TITLE, DROP_SUBTITLE)
         self._reset_output()
         self._progress.setValue(0)
@@ -451,13 +470,11 @@ class MainWindow(QMainWindow):
         targets = self._manager.supported_targets(self._input_format)
         if self._mode == "compress":
             if self._kind == "image":
-                return [t for t in targets if t == "jpeg"]          # only JPEG has a quality setting
+                return [t for t in targets if t in LOSSY_TARGETS]       # only these have a quality setting
             return [t for t in targets if t == self._input_format]  # video: same container, re-encoded
         return targets
 
     def _refresh_targets(self) -> None:
-        if self._mode == "restore":
-            return
         targets = self._targets_for_mode()
         previous = self._target_combo.currentData()
         self._target_combo.blockSignals(True)      # don't fire currentIndexChanged while refilling
@@ -474,10 +491,29 @@ class MainWindow(QMainWindow):
         target = self._target_combo.currentData()
         info = get_format(target) if target else None
         is_video = info is not None and info.kind == "video"
-        self._quality_row.setVisible(target == "jpeg")
+        self._quality_row.setVisible(target in LOSSY_TARGETS)
         self._codec_row.setVisible(is_video)
         self._crf_row.setVisible(is_video and self._mode == "compress")
+        to_gif = self._is_video_to_gif(target)
+        for gif_row in self._gif_rows:
+            gif_row.setVisible(to_gif)
+        self._default_button.setVisible(any(row.isVisibleTo(self) for row in
+                                            (self._quality_row, self._codec_row, self._crf_row, *self._gif_rows)))
         self._update_controls()
+
+    def _is_video_to_gif(self, target: Optional[str]) -> bool:
+        #the GIF sliders only make sense for a video going to GIF (a still image has no frame rate to choose)
+        source = get_format(self._input_format) if self._input_format else None
+        return target == "gif" and source is not None and source.kind == "video"
+
+    def _reset_options(self) -> None:
+        #DEFAULT: every option goes back to its starting position (hidden rows too, so nothing stale is left)
+        self._quality_slider.setValue(QUALITY_DEFAULT)
+        self._crf_slider.setValue(CRF_DEFAULT)
+        self._gif_fps_slider.setValue(GIF_FPS_DEFAULT)
+        self._gif_width_slider.setValue(GIF_WIDTH_DEFAULT)
+        self._gif_seconds_slider.setValue(GIF_SECONDS_DEFAULT)
+        self._codec_combo.setCurrentIndex(0)      # first entry of each list is the default: KEEP in CONVERT, H.264 in COMPRESS
 
     def _on_quality_changed(self, value: int) -> None:
         self._quality_value.setText(str(value))
@@ -490,7 +526,7 @@ class MainWindow(QMainWindow):
         options: Dict[str, Any] = {}
         target = self._target_combo.currentData()
         info = get_format(target) if target else None
-        if target == "jpeg":
+        if target in LOSSY_TARGETS:
             options["quality"] = self._quality_slider.value()
         if info is not None and info.kind == "video":
             codec = self._codec_combo.currentData()
@@ -498,6 +534,10 @@ class MainWindow(QMainWindow):
                 options["video_codec"] = codec
             if self._mode == "compress":
                 options["crf"] = self._crf_slider.value()
+        if self._is_video_to_gif(target):
+            options["gif_fps"] = self._gif_fps_slider.value()
+            options["gif_width"] = self._gif_width_slider.value()
+            options["gif_seconds"] = self._gif_seconds_slider.value()     # 0 means no cap, the backend understands that
         return options
 
     # ------------------------------------------------------------------ enabling controls
@@ -511,8 +551,10 @@ class MainWindow(QMainWindow):
         self._save_button.setEnabled(staged and not running)
         self._discard_button.setEnabled(staged and not running)
         self._remove_button.setEnabled(self._input is not None and not running)
+        self._default_button.setEnabled(not running)
         for widget in (self._target_combo, self._quality_slider, self._codec_combo,
-                       self._crf_slider, self._drop):
+                       self._crf_slider, self._gif_fps_slider, self._gif_width_slider,
+                       self._gif_seconds_slider, self._drop):
             widget.setEnabled(not running)
         for button in (*self._mode_buttons.values(), *self._kind_buttons.values()):
             button.setEnabled(not running)
@@ -578,8 +620,8 @@ class MainWindow(QMainWindow):
         self._out_name.setText(path.name)
         self._out_meta.setText(describe(path, format_id.id if format_id else path.suffix.lstrip(".")))
         is_video = format_id is not None and format_id.kind == "video"
-        if is_video or not self._preview.show_image(path):
-            self._preview.show_text(VIDEO_PREVIEW_TEXT if is_video else "NO PREVIEW FOR THIS FORMAT")
+        if not self._preview.show_file(path, is_video):     # images and animations via Pillow, video via Qt's player
+            self._preview.show_text("NO PREVIEW FOR THIS FORMAT")
 
     def _reset_output(self) -> None:
         self._result = None

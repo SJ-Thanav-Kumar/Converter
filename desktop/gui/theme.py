@@ -21,10 +21,14 @@ SIGNAL = FOREGROUND      # errors are written as "ERROR: ..." in this colour. Tr
 # Futura (ships with macOS) is the closest stand-in. Everything is regular weight, nothing bold.
 # The demo font installs under this long family name (Qt lists it that way); the short name is kept as a fallback.
 FONT_UI_CHOICES = ["FONTSPRING DEMO - Brutalista Black", "Brutalista Alt", "Futura", "Avenir Next", "Helvetica Neue"]
-FONT_DISPLAY_CHOICES = FONT_UI_CHOICES    # title, main tabs, headings. Give it its own list to differ
+FONT_DISPLAY_CHOICES = FONT_UI_CHOICES    # title, tabs, buttons, captions: text that is only ever plain letters
+# The Fontspring DEMO fonts replace these characters with a splash symbol:  4 ! " # $ % & ' ( ) * + - / < = > @ [ \ ] ^ _ ` { | } ~
+# So everything that can contain digits, dashes or brackets (file info, sizes, codecs, filenames, messages) uses this font.
+# With the full, licensed Brutalista font, set FONT_DATA_CHOICES = FONT_UI_CHOICES and the whole app is one font again.
+FONT_DATA_CHOICES = ["Futura", "Avenir Next", "Helvetica Neue"]
 TEXT_SIZE_PX = 12
 TITLE_SIZE_PT = 24
-NAV_SIZE_PT = 26                          # CONVERT / COMPRESS / RESTORE
+NAV_SIZE_PT = 26                          # CONVERT / COMPRESS
 TITLE_LETTER_SPACING_PX = 1              # spacing of the title and tabs
 CAPTION_LETTER_SPACING_PX = 2             # small spaced captions such as INPUT, OUTPUT FORMAT
 
@@ -39,7 +43,7 @@ SELECTED_UNDERLINE_PX = 3    # the bar under the selected main tab
 WINDOW_SIZE = (1180, 840)
 SIDEBAR_WIDTH_PX = 150      # the IMAGE / VIDEO column
 WORKSPACE_MARGIN_PX = 40    # space around the input -> output workspace
-COLUMN_GAP_PX = 18          # vertical gap between things inside one column
+COLUMN_GAP_PX = 12          # vertical gap between things inside one column
 ARROW_SIZE_PX = 44          # the arrow between input and output
 
 
@@ -79,19 +83,18 @@ _QSS = Template("""
 QWidget {
     background-color: $background;
     color: $foreground;
-    font-family: "$font_ui";
+    font-family: "$font_data";
     font-size: ${text_px}px;
 }
 QLabel { background: transparent; }
 QLabel[role="muted"] { color: $muted; }
-QLabel[role="caption"] { color: $muted; font-size: 11px; }
+QLabel[role="caption"] { color: $muted; font-size: 11px; font-family: "$font_display"; }
 
-QLabel#Title, QLabel#Heading {
+QLabel#Title {
     font-family: "$font_display";
     background: transparent;
 }
 QLabel#Title { font-size: ${title_pt}pt; }
-QLabel#Heading { font-size: ${nav_pt}pt; }
 QLabel#Arrow { color: $muted; font-size: ${arrow_px}px; }
 
 /* thin separators: a 1px high widget */
@@ -102,7 +105,7 @@ QWidget#Footer { border-top: ${border}px solid $line; }
 QWidget#NavBar { border-bottom: ${border}px solid $line; }
 QWidget#Sidebar { border-right: ${border}px solid $line; }
 
-/* main navigation: CONVERT | COMPRESS | RESTORE */
+/* main navigation: CONVERT | COMPRESS */
 QPushButton#NavTab {
     font-family: "$font_display";
     font-size: ${nav_pt}pt;
@@ -130,6 +133,7 @@ QPushButton#SideTab:hover { background-color: $surface; }
 QPushButton#SideTab:checked { background-color: $surface; border-left: ${underline}px solid $foreground; }
 
 QPushButton {
+    font-family: "$font_display";
     border: ${border}px solid $line;
     border-radius: ${radius}px;
     padding: ${padding}px 22px;
@@ -190,6 +194,7 @@ QSlider::handle:horizontal {
 #DropZone QLabel[role="dropTitle"] { font-size: 13px; }
 
 QLabel#Preview { border: ${border}px solid $line; background-color: $surface; color: $muted; }
+QLabel#Preview[inline="true"] { border: none; background-color: transparent; }   /* the preview inside the drop zone */
 
 QToolTip { background-color: $surface; color: $foreground; border: ${border}px solid $line; }
 QMessageBox { background-color: $background; }
@@ -205,7 +210,7 @@ def build_stylesheet() -> str:
         muted=MUTED,
         foreground=FOREGROUND,
         offwhite=OFFWHITE,
-        font_ui=_pick_font(FONT_UI_CHOICES),
+        font_data=_pick_font(FONT_DATA_CHOICES),
         font_display=_pick_font(FONT_DISPLAY_CHOICES),
         text_px=TEXT_SIZE_PX,
         title_pt=TITLE_SIZE_PT,

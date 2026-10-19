@@ -22,6 +22,8 @@ _FORMATS = {
         FormatInfo("bmp", "image", ".bmp", "BMP image"),
         FormatInfo("gif", "image", ".gif", "GIF image"),
         FormatInfo("webp", "image", ".webp", "WebP image"),
+        FormatInfo("avif", "image", ".avif", "AVIF image"),
+        FormatInfo("heic", "image", ".heic", "HEIC image"),
         FormatInfo("tiff", "image", ".tiff", "TIFF image"),
         FormatInfo("mp4", "video", ".mp4", "MP4 container"),
         FormatInfo("mov", "video", ".mov", "QuickTime MOV container"),

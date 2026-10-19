@@ -16,6 +16,12 @@ class DetectBytesTests(unittest.TestCase):
             b"GIF89a" + bytes(8): "gif",
             b"RIFF\x00\x00\x00\x00WEBPVP8 ": "webp",
             b"RIFF\x00\x00\x00\x00AVI LIST": "avi",
+            b"II*\x00" + bytes(8): "tiff",
+            b"MM\x00*" + bytes(8): "tiff",
+            b"\x00\x00\x00\x1cftypavif" + bytes(8): "avif",     # must not be mistaken for mp4
+            b"\x00\x00\x00\x1cftypavis" + bytes(8): "avif",
+            b"\x00\x00\x00\x18ftypheic" + bytes(8): "heic",     # iPhone photos, must not be mistaken for mp4
+            b"\x00\x00\x00\x18ftypmif1" + bytes(8): "heic",
             b"\x00\x00\x00\x18ftypmp42" + bytes(8): "mp4",
             b"\x00\x00\x00\x14ftypqt  " + bytes(8): "mov",
             b"\x1a\x45\xdf\xa3" + bytes(8): "mkv",

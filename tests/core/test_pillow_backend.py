@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image
 
@@ -22,8 +23,8 @@ class PillowBackendTests(unittest.TestCase):
         return self.manager.convert(src, fmt, output_dir=self.out)
 
     def test_all_pairs_registered(self):
-        self.assertEqual(self.manager.supported_targets("png"), ["bmp", "jpeg"])
-        self.assertEqual(self.manager.supported_targets("jpeg"), ["bmp", "png"])
+        self.assertEqual(self.manager.supported_targets("png"), ["avif", "bmp", "gif", "heic", "jpeg", "tiff", "webp"])
+        self.assertEqual(self.manager.supported_targets("jpeg"), ["avif", "bmp", "gif", "heic", "png", "tiff", "webp"])
 
     def test_png_to_jpeg_keeps_dimensions(self):
         src = self.dir / "a.png"
@@ -85,6 +86,82 @@ class PillowBackendTests(unittest.TestCase):
         Image.new("RGB", (40, 20), "red").save(src, exif=exif)
         with Image.open(self.convert(src, "png").output_path) as img:
             self.assertEqual(img.size, (20, 40))
+
+    def test_new_formats_keep_dimensions_and_transparency(self):
+        src = self.dir / "t.png"
+        Image.new("RGBA", (30, 20), (255, 0, 0, 100)).save(src)
+        for target, name in (("webp", "WEBP"), ("avif", "AVIF"), ("tiff", "TIFF"), ("heic", "HEIF")):
+            with self.subTest(target=target):
+                out = self.manager.convert(src, target, output_dir=self.out, overwrite=True).output_path
+                with Image.open(out) as img:
+                    self.assertEqual((img.format, img.size, img.mode), (name, (30, 20), "RGBA"))
+
+    def test_new_formats_roundtrip_back_to_png(self):
+        src = self.dir / "a.png"
+        Image.new("RGB", (16, 16), (10, 200, 30)).save(src)
+        for target in ("webp", "avif", "tiff", "gif", "heic"):
+            with self.subTest(target=target):
+                mid = self.manager.convert(src, target, output_dir=self.out, overwrite=True).output_path
+                back = self.manager.convert(mid, "png", output_dir=self.dir / "back", overwrite=True).output_path
+                with Image.open(back) as img:
+                    self.assertEqual(img.size, (16, 16))
+
+    def test_tiff_is_lossless(self):
+        original = Image.new("RGB", (6, 6))
+        original.putdata([(x * 40, y * 40, 7) for y in range(6) for x in range(6)])
+        src = self.dir / "a.png"
+        original.save(src)
+        with Image.open(self.convert(src, "tiff").output_path) as img:
+            self.assertEqual(img.convert("RGB").tobytes(), original.tobytes())
+
+    def test_quality_option_changes_lossy_size(self):
+        src = self.dir / "noise.png"
+        Image.effect_noise((64, 64), 60).convert("RGB").save(src)
+        for target in ("jpeg", "webp", "avif", "heic"):
+            with self.subTest(target=target):
+                low = self.manager.convert(src, target, output_dir=self.dir / "low", options={"quality": 10}).output_path
+                high = self.manager.convert(src, target, output_dir=self.dir / "high", options={"quality": 95}).output_path
+                self.assertLess(low.stat().st_size, high.stat().st_size)
+
+    def _make_animated_gif(self, path):
+        frames = [Image.new("RGB", (20, 10), c) for c in ("red", "green", "blue")]
+        frames[0].save(path, save_all=True, append_images=frames[1:], duration=[100, 200, 300], loop=0)
+
+    def test_animation_survives_between_animated_formats(self):
+        src = self.dir / "a.gif"
+        self._make_animated_gif(src)
+        for target in ("webp", "avif"):
+            with self.subTest(target=target):
+                mid = self.manager.convert(src, target, output_dir=self.out, overwrite=True).output_path
+                with Image.open(mid) as img:
+                    self.assertEqual(img.n_frames, 3)
+                back = self.manager.convert(mid, "gif", output_dir=self.dir / "back", overwrite=True).output_path
+                with Image.open(back) as img:
+                    self.assertEqual(img.n_frames, 3)
+                    durations = []
+                    for i in range(img.n_frames):
+                        img.seek(i)
+                        durations.append(img.info["duration"])
+                    self.assertEqual(durations, [100, 200, 300])
+
+    def test_animation_to_still_format_uses_first_frame(self):
+        src = self.dir / "a.gif"
+        self._make_animated_gif(src)
+        with Image.open(self.convert(src, "png").output_path) as img:
+            self.assertEqual(getattr(img, "n_frames", 1), 1)
+
+    def test_missing_heif_plugin_hides_heic(self):
+        with mock.patch("core.image.pillow_backend.HEIF_READY", False):
+            targets = {b for _, b in PillowBackend().supported_conversions()}
+        self.assertNotIn("heic", targets)
+        self.assertIn("webp", targets)
+
+    def test_missing_webp_support_hides_it(self):
+        with mock.patch("core.image.pillow_backend.features.check", return_value=False):
+            targets = {b for _, b in PillowBackend().supported_conversions()}
+        self.assertNotIn("webp", targets)
+        self.assertNotIn("avif", targets)
+        self.assertIn("tiff", targets)
 
     def test_corrupt_image_fails_cleanly(self):
         src = self.dir / "bad.png"

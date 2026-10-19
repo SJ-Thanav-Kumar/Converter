@@ -31,6 +31,12 @@ def detect_bytes(header: bytes) -> Optional[FormatInfo]:
         return get_format("avi")
     if header.startswith(b"\x1a\x45\xdf\xa3"):
         return get_format("mkv")
+    # AVIF is also an ISO base media file, so its brand ('avif' still, 'avis' animated) is checked first.
+    if header[4:8] == b"ftyp" and header[8:12] in (b"avif", b"avis"):
+        return get_format("avif")
+    # HEIC (iPhone photos) is the same box layout again. Its brands: heic/heix (still), heim/heis, mif1/msf1 (generic HEIF).
+    if header[4:8] == b"ftyp" and header[8:12] in (b"heic", b"heix", b"heim", b"heis", b"mif1", b"msf1"):
+        return get_format("heic")
     # ISO base media: [size:4]['ftyp'][major brand:4]; 'qt  ' means QuickTime.
     if header[4:8] == b"ftyp":
         return get_format("mov" if header[8:12] == b"qt  " else "mp4")

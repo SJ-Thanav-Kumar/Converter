@@ -3,7 +3,7 @@ name = "converter"
 version = "0.1.0"
 description = "Local image/video file converter (learning project -> desktop app)"
 requires-python = ">=3.9"
-dependencies = ["Pillow>=10"]   # FFmpeg is an external tool, not a pip package
+dependencies = ["Pillow>=11.3", "pillow-heif>=0.18"]   # 11.3+ has AVIF built in. FFmpeg is an external tool, not a pip package
 
 [project.optional-dependencies]
 desktop = ["PySide6>=6.5"]       # Module 19

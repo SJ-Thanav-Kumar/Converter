@@ -1,12 +1,16 @@
-#Small reusable widgets: the drop zone and the preview box
+#Small reusable widgets: the drop zone and the preview box (images, animations and video)
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QPoint, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
+from PIL import Image, ImageOps, UnidentifiedImageError
+from PySide6.QtCore import QByteArray, QPoint, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QComboBox, QFrame, QLabel, QPushButton, QSizePolicy, QVBoxLayout
+from PySide6.QtWidgets import (
+    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedLayout, QVBoxLayout, QWidget,
+)
 
 from desktop.gui.theme import repolish
 
@@ -24,7 +28,8 @@ class DropZone(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setProperty("dragging", False)
         self.setProperty("loaded", False)
-        self.setMinimumHeight(150)
+        self.setMinimumHeight(120)
+        self.setToolTip("Click to choose another file")
 
         self._title = QLabel(title)
         self._title.setProperty("role", "dropTitle")
@@ -38,6 +43,25 @@ class DropZone(QFrame):
             label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             layout.addWidget(label)
         layout.addStretch()
+        self._preview = PreviewBox("", inline=True)      #shown instead of the texts once a file is loaded
+        self._preview.hide()
+        layout.addWidget(self._preview, stretch=1)
+
+    def show_preview(self, path: Path, is_video: bool) -> bool:
+        #draw the loaded file inside the box. False = cannot be drawn, the texts stay
+        if not self._preview.show_file(path, is_video):
+            self.clear_preview()
+            return False
+        self._title.hide()
+        self._subtitle.hide()
+        self._preview.show()
+        return True
+
+    def clear_preview(self) -> None:
+        self._preview.hide()
+        self._preview.show_text("")      #also stops any playing animation or video
+        self._title.show()
+        self._subtitle.show()
 
     def set_texts(self, title: str, subtitle: str) -> None:
         self._title.setText(title)
@@ -73,32 +97,20 @@ class DropZone(QFrame):
             self.clicked.emit()
 
 
-class PreviewBox(QLabel):
-    #shows an image scaled to fit, or a line of text when there is nothing to draw
+PREVIEW_MAX_PX = 1200      #frames are shrunk to this before drawing, so a 40 MP photo costs no more than a small one
+ANIMATED_FORMATS = ("GIF", "WEBP", "AVIF")    #Pillow format names whose extra frames are a real animation
 
-    def __init__(self, placeholder: str) -> None:
-        super().__init__(placeholder)
-        self.setObjectName("Preview")
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setWordWrap(True)
-        self.setMinimumSize(260, 200)
-        #ignored: the box takes whatever the layout gives it, and a big pixmap
-        #can never force the window to grow.
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+
+class _PixmapLabel(QLabel):
+    #a label that keeps the full-size picture and redraws it scaled whenever it is resized
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
         self._original = None   #the full-size QPixmap, kept so a resize rescales from the source
 
-    def show_text(self, text: str) -> None:
-        self._original = None
-        self.clear()
-        self.setText(text)
-
-    def show_image(self, path: Path) -> bool:
-        pixmap = QPixmap(str(path))
-        if pixmap.isNull():     #Qt has no reader for this format, so return false
-            return False
+    def set_source(self, pixmap) -> None:
         self._original = pixmap
         self._rescale()
-        return True
 
     def _rescale(self) -> None:
         if self._original is None:
@@ -113,6 +125,168 @@ class PreviewBox(QLabel):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._rescale()
+
+
+class PreviewBox(QWidget):
+    #shows a file: a still image, an animation (gif/webp/avif), a video, or a line of text.
+    #inline=True is the quiet version used inside the drop zone: no border, no buttons, no sound.
+    #
+    #Pictures are decoded with Pillow, the same library that wrote them, so every format the
+    #converter can output can be previewed (Qt itself cannot read AVIF, and its WebP/HEIC support
+    #depends on optional plugins). Video goes through Qt's own player.
+
+    def __init__(self, placeholder: str, inline: bool = False) -> None:
+        super().__init__()
+        self._inline = inline
+        self._stack = QStackedLayout(self)              #shows ONE of its pages at a time
+        self._stack.setContentsMargins(0, 0, 0, 0)
+        self._label = _PixmapLabel(placeholder)         #page 0: text, still picture or animation frame
+        self._label.setObjectName("Preview")
+        self._label.setProperty("inline", inline)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setWordWrap(True)
+        self._stack.addWidget(self._label)
+        if inline:
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)   #clicks/drops fall through to the drop zone
+        else:
+            self.setMinimumSize(260, 200)
+        #ignored: the box takes whatever the layout gives it, and a big pixmap
+        #can never force the window to grow.
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+
+        self._timer = QTimer(self)                      #one tick per animation frame
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._next_frame)
+        self._animation = None                          #the open Pillow image while a gif/webp/avif plays
+        self._frame = 0
+
+        self._player = None                             #QMediaPlayer, built the first time a video is shown
+        self._video_page = None
+        self._play_button = None
+        self._sound_button = None
+
+    def minimumSizeHint(self) -> QSize:
+        #without this the video widget's own minimum size would make the box refuse to shrink with the window
+        return QSize(0, 0)
+
+    # ------------------------------------------------------------------ public
+    def show_text(self, text: str) -> None:
+        self._stop()
+        self._label.clear()
+        self._label.setText(text)
+        self._stack.setCurrentWidget(self._label)
+
+    def show_file(self, path: Path, is_video: bool) -> bool:
+        #True if it is now on screen, False if there is nothing we can draw (the caller shows text)
+        self._stop()
+        return self._show_video(path) if is_video else self._show_picture(path)
+
+    # ------------------------------------------------------------------ pictures and animations
+    def _show_picture(self, path: Path) -> bool:
+        try:
+            #read the bytes once so no file handle stays open: the staged file is moved or deleted later
+            img = Image.open(io.BytesIO(path.read_bytes()))
+            animated = img.format in ANIMATED_FORMATS and getattr(img, "is_animated", False)
+            if not animated:
+                img = ImageOps.exif_transpose(img)      #bake in the camera rotation, like the converter does
+            self._draw(img)
+        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+            return False
+        self._stack.setCurrentWidget(self._label)
+        if animated:
+            self._animation, self._frame = img, 0
+            self._timer.start(self._delay(img))
+        return True
+
+    @staticmethod
+    def _delay(img: Image.Image) -> int:
+        return max(20, int(img.info.get("duration", 100)))   #ms; tiny delays are clamped so the UI keeps breathing
+
+    def _draw(self, img: Image.Image) -> None:
+        frame = img.convert("RGBA")
+        frame.thumbnail((PREVIEW_MAX_PX, PREVIEW_MAX_PX))
+        qimage = QImage(frame.tobytes(), frame.width, frame.height, frame.width * 4, QImage.Format.Format_RGBA8888)
+        self._label.set_source(QPixmap.fromImage(qimage))    #fromImage copies, so the bytes can go away
+
+    def _next_frame(self) -> None:
+        img = self._animation
+        if img is None:
+            return
+        self._frame = (self._frame + 1) % img.n_frames      #wrap around: the preview loops forever
+        img.seek(self._frame)
+        self._draw(img)
+        self._timer.start(self._delay(img))
+
+    # ------------------------------------------------------------------ video
+    def _show_video(self, path: Path) -> bool:
+        if not self._ensure_player():
+            return False
+        self._player.setSource(QUrl.fromLocalFile(str(path)))
+        self._player.play()
+        self._stack.setCurrentWidget(self._video_page)
+        if self._play_button is not None:
+            self._play_button.setText("PAUSE")
+        return True
+
+    def _ensure_player(self) -> bool:
+        if self._player is not None:
+            return True
+        try:
+            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+            from PySide6.QtMultimediaWidgets import QVideoWidget
+        except ImportError:                              #a Qt install without multimedia: previews fall back to text
+            return False
+        self._video_page = QWidget()
+        column = QVBoxLayout(self._video_page)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
+        video = QVideoWidget()
+        video.setMinimumSize(1, 1)
+        column.addWidget(video, stretch=1)
+
+        self._player = QMediaPlayer(self)
+        audio = QAudioOutput(self)
+        audio.setMuted(True)                             #never start blaring sound when a conversion finishes
+        self._player.setAudioOutput(audio)
+        self._player.setVideoOutput(video)
+        self._player.setLoops(QMediaPlayer.Loops.Infinite)
+        self._player.errorOccurred.connect(lambda *_: self.show_text("THIS VIDEO CANNOT BE PREVIEWED"))
+
+        if not self._inline:                             #the output preview gets two small buttons
+            row = QHBoxLayout()
+            self._play_button = QPushButton("PAUSE")
+            self._sound_button = QPushButton("SOUND OFF")
+            for button in (self._play_button, self._sound_button):
+                button.setObjectName("Flat")
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                row.addWidget(button)
+            row.addStretch()
+            column.addLayout(row)
+
+            def toggle_play() -> None:
+                playing = self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+                self._player.pause() if playing else self._player.play()
+                self._play_button.setText("PLAY" if playing else "PAUSE")
+
+            def toggle_sound() -> None:
+                audio.setMuted(not audio.isMuted())
+                self._sound_button.setText("SOUND OFF" if audio.isMuted() else "SOUND ON")
+
+            self._play_button.clicked.connect(toggle_play)
+            self._sound_button.clicked.connect(toggle_sound)
+        self._stack.addWidget(self._video_page)
+        return True
+
+    # ------------------------------------------------------------------ cleanup
+    def _stop(self) -> None:
+        #let go of everything: the timer, the open animation, and the video file
+        self._timer.stop()
+        self._animation = None
+        self._label.set_source(None)
+        if self._player is not None:
+            self._player.stop()
+            self._player.setSource(QUrl())
+
 
 # Logos as SVG text so no image files are needed. The fill colour is filled in at draw time.
 GITHUB_SVG = (
