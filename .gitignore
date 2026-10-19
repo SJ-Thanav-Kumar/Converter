@@ -12,5 +12,5 @@ __pycache__/
 build/
 dist/
 *.spec
-/tests
-/examples
+tests/
+examples/
