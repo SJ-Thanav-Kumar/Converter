@@ -7,7 +7,16 @@ A local desktop converter for images and video, built with Python, Pillow, FFmpe
 This little side project started as me just getting wildly curious with file formats. Little did I know how deep this shit hole went, if only i could have the time i lost back....
 I was also rather very pissed at all the online converters out there with their clunky ui and ads being shoved in your face every 5 seconds. So i decided, hey why not, im learning it, might as well make something out of it. So here we are!
 
-<!-- TODO: add a screenshot or short GIF of the app here -->
+<img width="1180" height="868" alt="Screenshot 2026-10-19 at 23 37 55" src="https://github.com/user-attachments/assets/e775424b-79f0-4d3d-b24c-b29b855955ee" />
+
+<img width="1180" height="868" alt="Screenshot 2026-10-19 at 23 37 43" src="https://github.com/user-attachments/assets/ebff761d-d55c-4023-9b73-52648f61a84c" />
+
+<img width="1180" height="868" alt="Screenshot 2026-10-19 at 23 38 15" src="https://github.com/user-attachments/assets/168acb3a-5647-475a-bdbb-8571e3ede1d7" />
+
+<img width="1180" height="868" alt="Screenshot 2026-10-19 at 23 39 14" src="https://github.com/user-attachments/assets/ef40dd11-010f-4ea8-b7aa-884623b79dec" />
+
+<img width="1180" height="868" alt="Screenshot 2026-10-19 at 23 39 32" src="https://github.com/user-attachments/assets/9e9e81bf-fdd2-4824-86e4-e8ddb297ad0f" />
+
 
 ## Features
 
@@ -24,9 +33,9 @@ To get the app, download the build from [Releases](https://github.com/SJ-Thanav-
 
 Just so you know, the app is gonna show you a warning on either platform, its safe i promise. I'm too broke to afford a developer license....
 
-### Video needs FFmpeg
+### NOTE: Video needs FFmpeg
 
-Unfortunately, FFmpeg is not bundled with the .dmg nor .exe, you're gonna have to download FFmpeg on your computer on your own. Heres how:
+Unfortunately, FFmpeg is not bundled with the .dmg nor .exe, you're gonna have to download FFmpeg in your computer on your own. Heres how:
 
 - **macOS:** `brew install ffmpeg`
 - **Windows:** `winget install ffmpeg`
