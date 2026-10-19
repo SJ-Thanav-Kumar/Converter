@@ -1,6 +1,6 @@
 # Quarry
 
-A local desktop converter for images and video, built with Python, Pillow, FFmpeg and PySide6. Everything runs on your machine. Promise!
+A local desktop converter/compressor for images and video, built with Python, Pillow, FFmpeg and PySide6. Everything runs on your machine. Promise!
 
 ## About
 
