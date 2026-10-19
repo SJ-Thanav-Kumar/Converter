@@ -92,7 +92,9 @@ class PillowBackend(ConversionBackend):
 
     def supported_conversions(self) ->Set[Tuple[str, str]]:
         names = self._available()
-        return {(a,b) for a in names for b in names if a!=b}
+        pairs = {(a,b) for a in names for b in names if a!=b}
+        #same format in, same format out: the COMPRESS tab (lossy formats only, quality slider)
+        return pairs | {(f, f) for f in LOSSY if f in names}
 
     def convert(
         self,

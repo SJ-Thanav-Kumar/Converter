@@ -31,7 +31,7 @@ BUTTON_TEXT = {"cancel": "CANCEL", "save": "SAVE OUTPUT", "discard": "DISCARD", 
 # >>> ELEMENT: the main tabs: (mode id, label, text of the run button, hint under ADDITIONAL OPTIONS)
 MODES = [
     ("convert", "CONVERT", "CONVERT FILE", "Keep default settings for best quality."),
-    ("compress", "COMPRESS", "COMPRESS FILE", "Smaller file, lower quality. Image: JPEG, WebP, AVIF or HEIC. Video: re-encoded."),
+    ("compress", "COMPRESS", "COMPRESS FILE", "Smaller file, lower quality, same format. Image: JPEG, WebP, AVIF or HEIC. Video: re-encoded."),
 ]
 # >>> ELEMENT: the secondary tabs: (kind id, label)
 KINDS = [("image", "IMAGE"), ("video", "VIDEO")]
@@ -220,15 +220,17 @@ class MainWindow(QMainWindow):
         col.addLayout(file_row)
         col.addWidget(self._rule())
 
-        col.addWidget(self._caption("OUTPUT FORMAT"))
+        self._target_caption = self._caption("OUTPUT FORMAT")
         self._target_combo = BelowComboBox()
         self._target_combo.currentIndexChanged.connect(self._on_target_changed)
-        col.addWidget(self._target_combo)
-        col.addWidget(self._rule())
+        self._target_rule = self._rule()
+        for widget in (self._target_caption, self._target_combo, self._target_rule):
+            col.addWidget(widget)      # all three are hidden together in COMPRESS: there the format never changes
 
         # operation settingseach row is shown or hidden by _on_target_changed
         options_head = QHBoxLayout()           # caption on the left, DEFAULT button on the right
-        options_head.addWidget(self._caption("ADDITIONAL OPTIONS"))
+        self._options_caption = self._caption("ADDITIONAL OPTIONS")
+        options_head.addWidget(self._options_caption)
         options_head.addStretch()
         self._default_button = QPushButton(BUTTON_TEXT["default"])
         self._default_button.setObjectName("Flat")
@@ -374,6 +376,9 @@ class MainWindow(QMainWindow):
         entry = next(m for m in MODES if m[0] == mode)
         self._run_button.setText(entry[2])
         self._hint.setText(entry[3])
+        for widget in (self._target_caption, self._target_combo, self._target_rule):
+            widget.setVisible(mode == "convert")
+        self._options_caption.setVisible(mode == "convert")      # COMPRESS only has the quality / CRF sliders, no heading needed
         self._fill_codecs()
         self._refresh_targets()
 
@@ -474,9 +479,9 @@ class MainWindow(QMainWindow):
             return []
         targets = self._manager.supported_targets(self._input_format)
         if self._mode == "compress":
-            if self._kind == "image":
-                return [t for t in targets if t in LOSSY_TARGETS]       # only these have a quality setting
-            return [t for t in targets if t == self._input_format]  # video: same container, re-encoded
+            return [t for t in targets if t == self._input_format]     # COMPRESS never changes the format: image = same lossy format, video = same container re-encoded
+        if self._kind == "image":
+            return [t for t in targets if t != self._input_format]     # CONVERT to the same image format would be pointless
         return targets
 
     def _refresh_targets(self) -> None:

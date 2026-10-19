@@ -26,7 +26,7 @@ class FakeBackend(ConversionBackend):
     name = "fake"
 
     def supported_conversions(self):
-        return {("png", "jpeg"), ("png", "bmp"), ("jpeg", "png")}
+        return {("png", "jpeg"), ("png", "bmp"), ("jpeg", "png"), ("jpeg", "jpeg")}
 
     def convert(self, source, destination, source_format, target_format, progress, cancel, options):
         progress(0.5, "halfway")
@@ -132,20 +132,22 @@ class DesktopTests(unittest.TestCase):
         self.assertIsNone(window._input)
         self.assertIn("ERROR", window._status.text())
 
-    def test_compress_mode_offers_only_jpeg_for_images(self):
-        window = self.make_window()
-        window._load_file(self.src)
-        window._set_mode("compress")
-        self.assertEqual(self.targets(window), ["jpeg"])
-        self.assertTrue(window._quality_row.isVisibleTo(window))
-        window._set_mode("convert")
-        self.assertEqual(self.targets(window), ["bmp", "jpeg"])
-
-    def test_compress_has_no_route_for_a_jpeg_source(self):
+    def test_compress_keeps_the_format_and_hides_the_format_picker(self):
         jpg = self.dir / "photo.jpg"
         jpg.write_bytes(JPEG)
         window = self.make_window()
         window._load_file(jpg)
+        self.assertEqual(self.targets(window), ["png"])      # CONVERT never offers the same format
+        window._set_mode("compress")
+        self.assertEqual(self.targets(window), ["jpeg"])
+        self.assertTrue(window._target_combo.isHidden())
+        self.assertTrue(window._quality_row.isVisibleTo(window))
+        window._set_mode("convert")
+        self.assertFalse(window._target_combo.isHidden())
+
+    def test_compress_has_no_route_for_a_png_source(self):
+        window = self.make_window()
+        window._load_file(self.src)
         window._set_mode("compress")
         self.assertEqual(self.targets(window), [])
         self.assertFalse(window._run_button.isEnabled())

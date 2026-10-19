@@ -24,7 +24,7 @@ class PillowBackendTests(unittest.TestCase):
 
     def test_all_pairs_registered(self):
         self.assertEqual(self.manager.supported_targets("png"), ["avif", "bmp", "gif", "heic", "jpeg", "tiff", "webp"])
-        self.assertEqual(self.manager.supported_targets("jpeg"), ["avif", "bmp", "gif", "heic", "png", "tiff", "webp"])
+        self.assertEqual(self.manager.supported_targets("jpeg"), ["avif", "bmp", "gif", "heic", "jpeg", "png", "tiff", "webp"])
 
     def test_png_to_jpeg_keeps_dimensions(self):
         src = self.dir / "a.png"
