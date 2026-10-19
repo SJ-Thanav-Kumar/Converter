@@ -1,5 +1,6 @@
 .venv/
 .vscode/
+.claude/
 docs/
 learning/
 converter_learning_modules.md
@@ -8,3 +9,6 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .env
+build/
+dist/
+*.spec
