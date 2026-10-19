@@ -5,7 +5,8 @@ A local desktop converter for images and video, built with Python, Pillow, FFmpe
 ## About
 
 This little side project started as me just getting wildly curious with file formats. Little did I know how deep this shit hole went, if only i could have the time i lost back....
-I was also rather very pissed at all the online converters out there with their clunky ui and ads being shoved in your face every 5 seconds. So i decided, hey why not, im learning it, might as well make something out of it. So here we are!
+I was also very pissed at all the online converters out there with their clunky ui and ads being shoved in your face every 5 seconds. So i decided, hey why not, im learning it, might as well make something out of it. So here we are!
+
 If you feel its a need to know before you trust me... Then yes. I used generative AI in this Project. Am i pro AI? NO! Absolutely not!
 Then why did I use Gen AI? I used it from a Teacher <-> Student perspective. Yes, I get it, I sound like one of those AI bros lol. But really, i promise you thats what I did. I used Gen AI to teach me concepts that took me just days to learn, which would've taken me AGES if i had decided do it on my own. Yes, i had AI help me with learning, help me coding concepts, help me with the project structure. But i promise you. I made this app with the purest of intentions. I am NOT pro AI. I believe AI should be used as a tool to LEARN and UNDERSTAND, instead of treating it like a shortcut like every other person on LinkedIn. 
 I am happy to share my learning modules with you that I got as a proof of what I'm saying!
