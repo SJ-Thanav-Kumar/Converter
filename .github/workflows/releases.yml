@@ -2,30 +2,60 @@ name: release
 on:
   push:
     tags: ["v*"]
-permissions:
-  contents: write
+
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -e ".[desktop]" pyinstaller
       - run: pyinstaller --noconfirm --windowed --name Quarry --paths . --collect-all pillow_heif desktop/main.py
-      - name: Package (macOS)
-        if: runner.os == 'macOS'
+      - name: Make the .dmg
         run: |
           mkdir dmgroot && cp -R dist/Quarry.app dmgroot/ && ln -s /Applications dmgroot/Applications
           hdiutil create -volname Quarry -srcfolder dmgroot -ov -format UDZO Quarry-macOS.dmg
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Quarry-macOS
+          path: Quarry-macOS.dmg
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[desktop]" pyinstaller
+      - run: pyinstaller --noconfirm --windowed --name Quarry --paths . --collect-all pillow_heif desktop/main.py
+      - name: Zip the app folder
         run: Compress-Archive -Path dist\Quarry -DestinationPath Quarry-Windows.zip
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Quarry-Windows
+          path: Quarry-Windows.zip
+          if-no-files-found: error
+
+  release:
+    needs: [build-macos, build-windows]     # only runs if BOTH builds succeeded
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write                       # needed to create the Release and attach files
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-files
+          merge-multiple: true              # both artifacts land side by side in dist-files/
+      - run: ls -l dist-files
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
-            Quarry-macOS.dmg
-            Quarry-Windows.zip
+            dist-files/Quarry-macOS.dmg
+            dist-files/Quarry-Windows.zip
+          fail_on_unmatched_files: true
