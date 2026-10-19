@@ -116,8 +116,13 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(36, 16, 36, 16)
         title = QLabel(APP_NAME)
         theme.style_title(title)
+        # which engines this machine has: images always work (Pillow); video needs FFmpeg
+        video_on = bool(self._manager.supported_targets("mp4"))
+        engines = QLabel(f"IMAGE ON    VIDEO {'ON' if video_on else 'OFF (NO FFMPEG)'}")
+        engines.setProperty("role", "muted")
         row.addWidget(title)
         row.addStretch()
+        row.addWidget(engines)
         return bar
 
     def _build_nav_bar(self) -> QWidget:
