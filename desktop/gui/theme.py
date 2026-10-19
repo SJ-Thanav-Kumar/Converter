@@ -1,8 +1,6 @@
 #styling file
 from __future__ import annotations
-
 from string import Template
-
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QLabel, QWidget
 
@@ -17,14 +15,11 @@ OFFWHITE = "#E3E1DB"     # reserved for subtle contrast: the selected main tab a
 SIGNAL = FOREGROUND      # errors are written as "ERROR: ..." in this colour. Try "#FF6B4A" for red
 
 # >>> STYLE: fonts. The first family in each list that is installed is used (see _pick_font).
-# Brutalista Alt is the reference font; install it and it is picked up automatically.
-# Futura (ships with macOS) is the closest stand-in. Everything is regular weight, nothing bold.
-# The demo font installs under this long family name (Qt lists it that way); the short name is kept as a fallback.
-FONT_UI_CHOICES = ["FONTSPRING DEMO - Brutalista Black", "Brutalista Alt", "Futura", "Avenir Next", "Helvetica Neue"]
-FONT_DISPLAY_CHOICES = FONT_UI_CHOICES    # title, tabs, buttons, captions: text that is only ever plain letters
-# The Fontspring DEMO fonts replace these characters with a splash symbol:  4 ! " # $ % & ' ( ) * + - / < = > @ [ \ ] ^ _ ` { | } ~
-# So everything that can contain digits, dashes or brackets (file info, sizes, codecs, filenames, messages) uses this font.
-# With the full, licensed Brutalista font, set FONT_DATA_CHOICES = FONT_UI_CHOICES and the whole app is one font again.
+# For a portfolio project, use Inter (free, bundled with this repo in resources/fonts/ if you add it).
+# Everything is regular weight; no bold in the font family itself. Size and weight are set via QFont.
+# NOTE: Font names in Qt are just the family name (e.g., "Inter"), not "Inter18pt-Bold" or file names.
+FONT_UI_CHOICES = ["Inter", "FONTSPRING DEMO - Brutalista Black", "Futura", "Avenir Next", "Helvetica Neue"]
+FONT_DISPLAY_CHOICES = FONT_UI_CHOICES    # title, tabs, buttons, captions
 FONT_DATA_CHOICES = ["Futura", "Avenir Next", "Helvetica Neue"]
 TEXT_SIZE_PX = 12
 TITLE_SIZE_PT = 24
