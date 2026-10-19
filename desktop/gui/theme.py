@@ -14,10 +14,7 @@ FOREGROUND = "#FFFFFF"   # important text: titles, filenames, button labels
 OFFWHITE = "#E3E1DB"     # reserved for subtle contrast: the selected main tab and button hover
 SIGNAL = FOREGROUND      # errors are written as "ERROR: ..." in this colour. Try "#FF6B4A" for red
 
-# >>> STYLE: fonts. The first family in each list that is installed is used (see _pick_font).
-# For a portfolio project, use Inter (free, bundled with this repo in resources/fonts/ if you add it).
-# Everything is regular weight; no bold in the font family itself. Size and weight are set via QFont.
-# NOTE: Font names in Qt are just the family name (e.g., "Inter"), not "Inter18pt-Bold" or file names.
+# >>> STYLE: fonts. The first family in each list that is installed is used (see _pick_font)
 FONT_UI_CHOICES = ["Inter", "FONTSPRING DEMO - Brutalista Black", "Futura", "Avenir Next", "Helvetica Neue"]
 FONT_DISPLAY_CHOICES = FONT_UI_CHOICES    # title, tabs, buttons, captions
 FONT_DATA_CHOICES = ["Futura", "Avenir Next", "Helvetica Neue"]
