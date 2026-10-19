@@ -19,12 +19,13 @@ from core.conversion import ConversionManager
 from core.image.pillow_backend import PillowBackend
 from core.video.ffmpeg_backend import FFmpegBackend
 from desktop.gui.main_window import MainWindow
-from desktop.gui.theme import build_stylesheet
+from desktop.gui.theme import build_stylesheet, load_bundled_fonts
 from desktop.settings.store import AppSettings
 
 
 def main() -> int:
     app = QApplication(sys.argv)
+    load_bundled_fonts()          # the Inter file in resources/fonts/, before the stylesheet names it
     app.setStyleSheet(build_stylesheet())
 
     manager = ConversionManager([PillowBackend(), FFmpegBackend()])

@@ -1,5 +1,7 @@
 #styling file
 from __future__ import annotations
+import sys
+from pathlib import Path
 from string import Template
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QLabel, QWidget
@@ -14,10 +16,13 @@ FOREGROUND = "#FFFFFF"   # important text: titles, filenames, button labels
 OFFWHITE = "#E3E1DB"     # reserved for subtle contrast: the selected main tab and button hover
 SIGNAL = FOREGROUND      # errors are written as "ERROR: ..." in this colour. Try "#FF6B4A" for red
 
-# >>> STYLE: fonts. The first family in each list that is installed is used (see _pick_font)
-FONT_UI_CHOICES = ["Inter", "FONTSPRING DEMO - Brutalista Black", "Futura", "Avenir Next", "Helvetica Neue"]
+# >>> STYLE: fonts. The first family in each list that is installed is used (see _pick_font).
+# "Inter 18pt" is the BOLD Inter file shipped in resources/fonts/ and loaded at startup (load_bundled_fonts),
+# so the app looks the same on every machine. The names after it are only a safety net if that file is missing.
+# Font names are just family names: never put a size or a weight in them (not "Inter18pt-Bold").
+FONT_UI_CHOICES = ["Inter 18pt", "Inter", "Segoe UI", "Helvetica Neue", "Arial"]
 FONT_DISPLAY_CHOICES = FONT_UI_CHOICES    # title, tabs, buttons, captions
-FONT_DATA_CHOICES = ["Futura", "Avenir Next", "Helvetica Neue"]
+FONT_DATA_CHOICES = FONT_UI_CHOICES       # file info, sizes, messages. Inter has every character, so one font for all
 TEXT_SIZE_PX = 12
 TITLE_SIZE_PT = 24
 NAV_SIZE_PT = 26                          # CONVERT / COMPRESS
@@ -37,6 +42,23 @@ SIDEBAR_WIDTH_PX = 150      # the IMAGE / VIDEO column
 WORKSPACE_MARGIN_PX = 40    # space around the input -> output workspace
 COLUMN_GAP_PX = 12          # vertical gap between things inside one column
 ARROW_SIZE_PX = 44          # the arrow between input and output
+
+
+BUNDLED_FONTS = ["Inter_18pt-Bold.ttf"]     # files in resources/fonts/
+
+
+def _resource_dir() -> Path:
+    #next to the source normally; inside the unpacked app (sys._MEIPASS) when built with PyInstaller
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base / "resources" / "fonts"
+
+
+def load_bundled_fonts() -> None:
+    """Register the font files with Qt. Call once, after QApplication exists and before build_stylesheet()."""
+    for name in BUNDLED_FONTS:
+        path = _resource_dir() / name
+        if path.exists():                          # absolute path: Qt silently fails on some relative ones
+            QFontDatabase.addApplicationFont(str(path))
 
 
 def _pick_font(choices: list[str]) -> str:
