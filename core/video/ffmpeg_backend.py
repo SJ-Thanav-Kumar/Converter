@@ -21,6 +21,13 @@ COPYABLE = {
     "mkv": {"video": None, "audio": None},
 }
 
+#containers that can go to and from gif. mkv is left out on purpose
+GIF_VIDEO_FORMATS = {"mp4", "mov"}
+
+#gif defaults: a gif is huge, so it is made small and low-fps unless the caller asks otherwise
+GIF_FPS = 12
+GIF_WIDTH = 480
+
 #mapping option names to ffmpegs encoder name and a default crf(const rate factor)
 VIDEO_ENCODERS = {"h264": ("libx264", 23), "h265": ("libx265", 28)}
 
@@ -107,6 +114,46 @@ def build_command(
 
 
 
+#gif is not a video container, so it gets its own command builder
+#returns the same (argv_list, mode) pair as build_command. mode is "gif" here
+def build_gif_command(
+        ffmpeg: str, source: Path, destination: Path, source_format: str, target_format: str,
+        options: Dict[str, Any]
+) -> Tuple[List[str], str]:
+
+    command = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(source), "-an"]   #-an: gifs have no sound
+
+    if target_format == "gif":
+        fps = int(options.get("gif_fps", GIF_FPS))
+        width = int(options.get("gif_width", GIF_WIDTH))
+        seconds = float(options.get("gif_seconds", 0))         #0 = the whole video
+        if fps < 1 or width < 16 or seconds < 0:
+            raise ConversionFailedError("gif_fps must be at least 1, gif_width at least 16 and gif_seconds not negative")
+        if seconds > 0:
+            command += ["-t", str(seconds)]                    #stop after this many seconds. Placed after -i so it limits the output
+
+        #a gif can only hold 256 colours. paletteGEN picks the best 256 for this clip,
+        #paletteUSE maps every frame onto them. Without this the colours look dirty.
+        #min(width, iw) so a small video is never stretched bigger
+        command += ["-vf", f"fps={fps},scale='min({width},iw)':-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse",
+                    "-loop", "0"]                                #0 = loop forever
+    else:
+        wanted = options.get("video_codec") or "h264"
+        if wanted not in VIDEO_ENCODERS:
+            raise ConversionFailedError(f"Unsupported video codec option: {wanted!r}")
+        encoder, default_crf = VIDEO_ENCODERS[wanted]
+
+        #h264/h265 with yuv420p need even width and height, gifs often are odd. so round down to even
+        command += ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                    "-c:v", encoder, "-crf", str(options.get("crf", default_crf)),
+                    "-preset", "medium", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+        if encoder == "libx265":
+            command += ["-tag:v", "hvc1"]
+
+    command += ["-progress", "pipe:1", "-nostats", str(destination)]
+    return command, "gif"
+
+
 class FFmpegBackend(ConversionBackend):
     name = "FFmpeg"
 
@@ -114,7 +161,10 @@ class FFmpegBackend(ConversionBackend):
     def supported_conversions(self) -> Set[Tuple[str, str]]:
         if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
             return set()                             #no FFmpeg: so no video options in ui
-        return {(a, b) for a in VIDEO_FORMATS for b in VIDEO_FORMATS}
+        pairs = {(a, b) for a in VIDEO_FORMATS for b in VIDEO_FORMATS}
+        for container in GIF_VIDEO_FORMATS:        #gif both ways: video -> gif and gif -> video
+            pairs |= {(container, "gif"), ("gif", container)}
+        return pairs
 
     #orchestration
     def convert(
@@ -139,9 +189,13 @@ class FFmpegBackend(ConversionBackend):
         #handles missing keys and None. Needed to turn seconds encoded to %
         duration = float(info.get("format", {}).get("duration") or 0)
 
-        command, mode = build_command(ffmpeg, source.resolve(),
-                                      destination.resolve(), target_format, info, options)
-        verb = "Remuxing" if mode == "remux" else "Transcoding"
+        if "gif" in (source_format, target_format):
+            command, mode = build_gif_command(ffmpeg, source.resolve(), destination.resolve(),
+                                              source_format, target_format, options)
+        else:
+            command, mode = build_command(ffmpeg, source.resolve(),
+                                          destination.resolve(), target_format, info, options)
+        verb = {"remux": "Remuxing", "transcode": "Transcoding", "gif": "Converting"}[mode]
         progress(0.0, f"{verb} {source.name}")
 
         self._run(command, duration, progress, cancel)
